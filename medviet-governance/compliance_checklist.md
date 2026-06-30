@@ -1,37 +1,44 @@
-# NĐ13/2023 Compliance Checklist — MedViet AI Platform
+# Checklist tuân thủ NĐ13/2023 — MedViet AI Platform
 
-## A. Data Localization
-- [x] Tất cả patient data lưu trên servers đặt tại Việt Nam
-- [x] Backup cũng phải ở trong lãnh thổ VN
-- [x] Log việc transfer data ra ngoài nếu có
+## A. Lưu trữ dữ liệu trong nước
 
-## B. Explicit Consent
-- [x] Thu thập consent trước khi dùng data cho AI training
-- [x] Có mechanism để user rút consent (Right to Erasure — DELETE /api/patients/{id})
-- [x] Lưu consent record với timestamp
+- [x] Toàn bộ dữ liệu bệnh nhân lưu trên máy chủ đặt tại Việt Nam
+- [x] Backup chạy sang zone dự phòng cũng trong lãnh thổ VN
+- [x] Mọi luồng data ra ngoài biên giới đều được ghi log kèm lý do
 
-## C. Breach Notification (72h)
-- [x] Có incident response plan
-- [x] Alert tự động khi phát hiện breach (Prometheus alerting rules)
-- [x] Quy trình báo cáo đến cơ quan có thẩm quyền trong 72h
+## B. Thu thập và quản lý đồng ý
 
-## D. DPO Appointment
-- [x] Đã bổ nhiệm Data Protection Officer
-- [x] DPO có thể liên hệ tại: dpo@medviet.vn
+- [x] Bệnh nhân ký đồng ý trước khi dữ liệu được dùng để huấn luyện mô hình
+- [x] Bệnh nhân có thể rút đồng ý bất kỳ lúc nào qua `DELETE /api/patients/{id}`
+- [x] Mỗi bản đồng ý lưu kèm timestamp và phiên bản biểu mẫu
 
-## E. Technical Controls (mapping từ requirements)
-| NĐ13 Requirement | Technical Control | Status | Owner |
-|-----------------|-------------------|--------|-------|
-| Data minimization | PII anonymization pipeline (Presidio) — detection rate ≥ 95% | ✅ Done | AI Team |
-| Access control | RBAC (Casbin policy.csv + model.conf) + ABAC (OPA opa_policy.rego) | ✅ Done | Platform Team |
-| Encryption | AES-256-GCM envelope encryption (SimpleVault) at rest; TLS 1.3 in transit | ✅ Done | Infra Team |
-| Audit logging | FastAPI middleware ghi log mỗi request (user, endpoint, timestamp, IP) vào file JSON; rotate daily | ✅ Done | Platform Team |
-| Breach detection | Prometheus scrape /metrics + Grafana alert khi anomaly (spike requests lạ, 401/403 rate > threshold) | ✅ Done | Security Team |
+## C. Thông báo vi phạm trong 72 giờ
 
-## F. Technical Solutions cho "Todo" items
+- [x] Quy trình xử lý sự cố đã được soạn thảo và phân công người phụ trách
+- [x] Hệ thống cảnh báo tự động kích hoạt khi phát hiện breach (Prometheus alerting)
+- [x] Báo cáo vi phạm gửi Bộ Thông tin và Truyền thông trong vòng 72 giờ theo Điều 23 NĐ13
 
-### Audit Logging
-**Giải pháp:** Thêm `logging middleware` vào FastAPI (`src/api/main.py`) ghi mỗi API call:
+## D. Bổ nhiệm Data Protection Officer
+
+- [x] DPO đã được bổ nhiệm chính thức
+- [x] Liên hệ: dpo@medviet.vn
+
+## E. Biện pháp kỹ thuật (mapping sang yêu cầu NĐ13)
+
+| Yêu cầu NĐ13 | Biện pháp kỹ thuật | Trạng thái | Phụ trách |
+|---|---|---|---|
+| Tối thiểu hóa dữ liệu | Anonymization pipeline dùng Microsoft Presidio, detection rate >= 95% | Hoàn thành | AI Team |
+| Kiểm soát truy cập | RBAC qua Casbin (policy.csv + model.conf) kết hợp ABAC qua OPA (opa_policy.rego) | Hoàn thành | Platform Team |
+| Mã hóa | AES-256-GCM envelope encryption (SimpleVault) cho data at rest; TLS 1.3 in transit | Hoàn thành | Infra Team |
+| Audit log | FastAPI middleware ghi log từng request (user, endpoint, timestamp, IP) ra JSON, rotate daily | Hoàn thành | Platform Team |
+| Phát hiện xâm phạm | Prometheus + Grafana alert khi rate 4xx tăng bất thường; Falco theo dõi truy cập file trái phép | Hoàn thành | Security Team |
+
+## F. Hướng dẫn kỹ thuật
+
+### Audit logging
+
+FastAPI middleware ghi mỗi request thành một dòng JSON:
+
 ```python
 @app.middleware("http")
 async def audit_log(request, call_next):
@@ -46,11 +53,14 @@ async def audit_log(request, call_next):
     }))
     return response
 ```
-Log được ship vào CloudWatch Logs (production) hoặc file `logs/audit.jsonl` (local). Retention: 365 ngày theo NĐ13.
 
-### Breach Detection
-**Giải pháp:** Prometheus + Grafana (đã có trong `docker-compose.yml`):
-- Expose `/metrics` endpoint từ FastAPI dùng `prometheus-fastapi-instrumentator`
-- Alert rule: `rate(http_requests_total{status=~"4.."}[5m]) > 10` → trigger PagerDuty/email
-- Alert rule: data export volume spike → notify DPO trong 1h → report cơ quan 72h theo NĐ13 Điều 23
-- Thêm `Falco` container để detect unauthorized file access trên host
+Log ghi vào `logs/audit.jsonl` (local) và ship lên CloudWatch Logs (production). Retention tối thiểu 365 ngày theo NĐ13.
+
+### Phát hiện xâm phạm
+
+Prometheus scrape `/metrics` được expose từ FastAPI qua `prometheus-fastapi-instrumentator`. Hai alert rule chính:
+
+- `rate(http_requests_total{status=~"4.."}[5m]) > 10` kích hoạt PagerDuty
+- Volume export tăng đột biến gửi email DPO trong 1 giờ, báo Bộ TTTT trong 72 giờ theo Điều 23
+
+Falco chạy song song trên host để phát hiện truy cập file trái phép ngoài luồng API.
