@@ -24,7 +24,17 @@ rules:
     action: deny
     description: "NĐ13 data localization — no export outside Vietnam"
 
-  - name: block-destructive
-    condition: "action.type in ['delete', 'drop', 'truncate']"
+  - name: analyst-aggregated-only
+    condition: "action.agent_role == 'data_analyst' and not (action.type == 'read' and action.dataset == 'aggregated')"
     action: deny
-    description: "Destructive data operations are never allowed for agents"
+    description: "data_analyst agents may only read aggregated datasets"
+
+  - name: require-approval-delete
+    condition: "action.type == 'delete'"
+    action: require_approval
+    description: "Any delete action requires human approval before execution"
+
+  - name: block-destructive
+    condition: "action.type in ['drop', 'truncate']"
+    action: deny
+    description: "drop/truncate are never allowed for agents"
